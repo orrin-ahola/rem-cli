@@ -1,0 +1,44 @@
+
+
+Number 6:
+troll@aigames:~/backup$ rem a 2025-03-28 get a bangkok place MF\! --repeat every 1d
+Added: 2025-03-28 |  | get a bangkok place MF! 1d --repeat every
+troll@aigames:~/backup$ rem l
+
+
+ 1. 2025-03-25 Clean out inbox [ PENDING ]
+ 2. 2025-03-26 Schedule haircut [ PENDING ]
+ 3. 2025-03-27 Pay electric bill [ PENDING ]
+ 4. 2025-03-28 get a bangkok place MF! 1d --repeat every  <<<<< wat?
+ 5. 2025-04-01 Renew passport
+ 6. 2025-04-02 Buy birthday gift
+ 7. 2025-04-03 Check blood pressure
+ 8. 2025-04-04 Visit Mom
+ 9. 2025-04-06 team sync --repeat weekly
+10. 2025-04-10 Review finances
+11. 2025-05-01 Schedule physical
+
+Number 7:
+If you add a reminder that already exists:
+troll@aigames:~/bin$ rem list
+
+ 1. 2025-03-25 Clean out inbox [ PENDING ]
+ 2. 2025-03-26 Schedule haircut [ PENDING ]
+ 3. 2025-03-27 Pay electric bill [ PENDING ]
+ 4. 2025-03-28 get a bangkok place MF! 1d --repeat every
+ 5. 2025-03-28 go to the store
+ 6. 2025-04-01 Renew passport
+ 7. 2025-04-02 Buy birthday gift
+ 8. 2025-04-03 Check blood pressure
+ 9. 2025-04-04 Visit Mom
+10. 2025-04-06 team sync --repeat weekly
+11. 2025-04-10 Review finances
+12. 2025-04-15 call sister
+13. 2025-04-15 call work --repeat weekly
+14. 2025-04-15 goto work --repeat weekly
+15. 2025-04-15 listen to the video
+16. 2025-04-15 suck balls --repeat yearly
+17. 2025-04-15 debug the program 2025-04-15 debug the program
+18. 2025-05-01 Schedule physical
+19. 2025-08-04 Visit Bob
+20. 2026-08-08 take the exam

@@ -1,0 +1,278 @@
+#!/bin/bash
+
+REMINDER_FILE="$HOME/reminders.txt"
+EDITOR="${EDITOR:-vim}"
+
+command="$1"
+shift
+
+# === Command aliases ===
+case "$command" in
+  a) command="add" ;;
+  r) command="remove" ;;
+  e) command="edit" ;;
+  l) command="list" ;;
+  d) command="done" ;;
+  o) command="open" ;;
+  z) command="snooze" ;;
+  s) command="reschedule" ;;
+  h | --help | -h | \? ) command="help" ;;
+esac
+
+# === Error function ===
+error() {
+  echo "Error: $1" >&2
+  exit 1
+}
+
+
+# === Calculate next repeat date ===
+get_next_repeat_date() {
+  pattern="$1"
+
+  case "$pattern" in
+    weekly)
+      date -d "today +7 days" +%Y-%m-%d ;;
+    monthly)
+      date -d "today +1 month" +%Y-%m-%d ;;
+    yearly)
+      date -d "today +1 year" +%Y-%m-%d ;;
+    every*)
+      interval=$(echo "$pattern" | sed -E 's/^every[[:space:]]+//')
+      date -d "today +$interval" +%Y-%m-%d 2>/dev/null || echo ""
+      ;;
+    *)
+      echo "" ;;
+  esac
+}
+
+case "$command" in
+
+  # === LIST: Display reminders grouped and formatted ===
+  list)
+    if [[ ! -f "$REMINDER_FILE" ]]; then
+      echo "No reminders yet."
+      exit 0
+    fi
+
+    # Clean: remove blank lines and strip whitespace
+    tmpfile=$(mktemp)
+    awk 'NF { gsub(/^[ \t]+|[ \t]+$/, "", $0); print }' "$REMINDER_FILE" > "$tmpfile" && mv "$tmpfile" "$REMINDER_FILE"
+    sort -t '|' -k1,1 "$REMINDER_FILE" -o "$REMINDER_FILE"
+
+    echo ""
+    total_lines=$(wc -l < "$REMINDER_FILE")
+    width=2
+    [[ "$total_lines" -gt 9 ]] && width=3
+
+    nl -w${width} -s'. ' "$REMINDER_FILE" | while read -r num line; do
+      date_part=$(echo "$line" | cut -d'|' -f1 | xargs)
+      status_part=$(echo "$line" | cut -d'|' -f2 | xargs)
+      message_part=$(echo "$line" | cut -d'|' -f3- | xargs)
+
+      if [[ "$status_part" == "PENDING" ]]; then
+        printf "%${width}s %s %s [ PENDING ]\n" "$num" "$date_part" "$message_part"
+      elif [[ "$status_part" == "DONE" ]]; then
+        printf "%${width}s %s %s [ DONE ]\n" "$num" "$date_part" "$message_part"
+      else
+        printf "%${width}s %s %s\n" "$num" "$date_part" "$message_part"
+      fi
+    done
+    echo ""  
+    ;;
+    
+  # === ADD: Append a new reminder (optionally with repeat pattern) ===
+  add)
+    [[ $# -lt 2 ]] && error "Usage: rem add YYYY-MM-DD message [--repeat pattern]"
+
+    date_part="$1"
+    shift
+    repeat_pattern=""
+    msg_parts=()
+
+    in_repeat=0
+    repeat_parts=()
+
+    while [[ $# -gt 0 ]]; do
+      if [[ "$1" == "--repeat" ]]; then
+        in_repeat=1
+      elif [[ "$in_repeat" -eq 1 ]]; then
+        repeat_parts+=("$1")
+      else
+        msg_parts+=("$1")
+      fi
+      shift
+    done
+
+    repeat_pattern="${repeat_parts[*]}"
+
+    message_part="${msg_parts[*]}"
+
+    if ! [[ "$date_part" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+      error "Invalid date format. Use YYYY-MM-DD"
+    fi
+
+    if ! date -d "$date_part" >/dev/null 2>&1; then
+      error "Invalid calendar date: $date_part"
+    fi
+
+    if [[ -z "$message_part" ]]; then
+      error "You must provide a message after the date."
+    fi
+
+    line="$date_part |  | $message_part"
+    if [[ -n "$repeat_pattern" ]]; then
+      line="$line --repeat $repeat_pattern"
+    fi
+
+    # Normalize input message (collapse spaces, trim, lowercase)
+    normalized_input_msg=$(echo "$message_part" | tr '[:upper:]' '[:lower:]' | tr -s ' ' | sed 's/^ *//; s/ *$//')
+
+    # Check file for existing normalized duplicates
+    while IFS='|' read -r file_date file_status file_msg; do
+      file_msg=$(echo "$file_msg" | tr '[:upper:]' '[:lower:]' | tr -s ' ' | sed 's/^ *//; s/ *$//')
+      if [[ "$file_msg" == "$normalized_input_msg" ]]; then
+        echo "Duplicate reminder already exists on $file_date:"
+        echo "$file_date | $file_status | $file_msg"
+        exit 1
+      fi
+    done < "$REMINDER_FILE"
+
+    echo "$line" >> "$REMINDER_FILE"
+    if [[ -n "$repeat_pattern" ]]; then
+      echo "Added: $date_part $message_part --repeat $repeat_pattern"
+    else
+      echo "Added: $date_part $message_part"
+    fi
+    ;;
+
+  # === REMOVE: Delete a reminder by line number ===
+  remove)
+    [[ -z "$1" ]] && error "Usage: rem remove <line-number>"
+    tmpfile=$(mktemp)
+    sed "$1d" "$REMINDER_FILE" > "$tmpfile" && mv "$tmpfile" "$REMINDER_FILE"
+    echo "Removed line $1"
+    ;;
+
+  # === EDIT: Open a specific reminder in the editor ===
+  edit)
+    [[ -z "$1" ]] && error "Usage: rem edit <line-number>"
+    line=$(sed -n "$1p" "$REMINDER_FILE") || error "Could not read line $1"
+    echo "Editing: $line"
+    tmpfile=$(mktemp)
+    echo "$line" > "$tmpfile"
+    $EDITOR "$tmpfile"
+    newtext=$(<"$tmpfile")
+    sed "$1s/.*/$newtext/" "$REMINDER_FILE" > "$tmpfile.2" && mv "$tmpfile.2" "$REMINDER_FILE"
+    echo "Updated line $1"
+    ;;
+
+  # === DONE: Mark a reminder as complete, and schedule next repeat if applicable ===
+  done)
+    [[ -z "$1" ]] && error "Usage: rem done <line-number>"
+
+    line=$(sed -n "$1p" "$REMINDER_FILE") || error "Could not read line $1"
+    date_part=$(echo "$line" | cut -d'|' -f1 | xargs)
+    status_part="DONE"
+    message_part=$(echo "$line" | cut -d'|' -f3- | xargs)
+
+    new_line="$date_part | $status_part | $message_part"
+    tmpfile=$(mktemp)
+    escaped=$(printf '%s\n' "$new_line" | sed 's/[&|]/\\&/g')
+    sed "$1s|.*|$escaped|" "$REMINDER_FILE" > "$tmpfile" && mv "$tmpfile" "$REMINDER_FILE"
+    echo "Marked line $1 as DONE."
+
+    # Handle repeat
+    if [[ "$message_part" =~ --repeat[[:space:]]+([a-zA-Z0-9]+(\s+[a-zA-Z0-9]+)?) ]]; then
+      repeat_raw="${BASH_REMATCH[1]}"
+      next_date=$(get_next_repeat_date "$repeat_raw")
+      if [[ -n "$next_date" ]]; then
+        msg_without_status=$(echo "$message_part" | sed 's/^DONE[[:space:]]*//')
+        new_repeat_line="$next_date |  | $msg_without_status"
+        echo "$new_repeat_line" >> "$REMINDER_FILE"
+        echo "Added repeat for: $next_date"
+      fi
+    fi
+    ;;
+
+  # === SNOOZE: Shift a reminder by a relative offset (e.g. +3d) ===
+  snooze)
+    [[ $# -lt 2 ]] && error "Usage: rem snooze <line-number> <+Nd|+Nw|+Nm|+Ny>"
+    line_num="$1"
+    offset="$2"
+
+    line=$(sed -n "${line_num}p" "$REMINDER_FILE") || error "Could not read line $line_num"
+    orig_date=$(echo "$line" | cut -d'|' -f1 | xargs)
+    status_part=$(echo "$line" | cut -d'|' -f2 | xargs)
+    message_part=$(echo "$line" | cut -d'|' -f3- | xargs)
+
+    new_date=$(date -d "today $offset" +%Y-%m-%d 2>/dev/null)
+    [[ -z "$new_date" ]] && error "Invalid date offset: $offset"
+
+    new_line="$new_date |  | $message_part"
+    tmpfile=$(mktemp)
+    escaped=$(printf '%s\n' "$new_line" | sed 's/[&|]/\\&/g')
+    sed "${line_num}s|.*|$escaped|" "$REMINDER_FILE" > "$tmpfile" && mv "$tmpfile" "$REMINDER_FILE"
+    #sort_reminders_file
+    echo "Snoozed line $line_num to $new_date"
+    ;;
+
+  # === RESCHEDULE: Set a new exact date for a reminder ===
+  reschedule)
+    [[ $# -lt 2 ]] && error "Usage: rem reschedule <line-number> <YYYY-MM-DD>"
+    line_num="$1"
+    new_date="$2"
+
+    if ! [[ "$new_date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || ! date -d "$new_date" >/dev/null 2>&1; then
+      error "Invalid date format. Use YYYY-MM-DD"
+    fi
+
+    line=$(sed -n "${line_num}p" "$REMINDER_FILE") || error "Could not read line $line_num"
+    old_status=$(echo "$line" | cut -d'|' -f2 | xargs)
+    message_part=$(echo "$line" | cut -d'|' -f3- | xargs)
+
+    new_line="$new_date | $old_status | $message_part"
+    tmpfile=$(mktemp)
+    escaped=$(printf '%s\n' "$new_line" | sed 's/[&|]/\\&/g')
+    sed "${line_num}s|.*|$escaped|" "$REMINDER_FILE" > "$tmpfile" && mv "$tmpfile" "$REMINDER_FILE"
+    echo "Rescheduled line $line_num to $new_date"
+    ;;
+
+  # === OPEN: Launch reminder file in editor and sort on close ===
+  open)
+    $EDITOR "$REMINDER_FILE"
+    ;;
+
+  # === HELP: Show usage info ===
+  help)
+    echo "Usage: rem <command> [args]"
+    echo ""
+    echo "Commands:"
+    echo "  list (l)                          Show reminders (date-sorted, numbered)"
+    echo "  add (a) YYYY-MM-DD msg [--repeat pattern]   Add a reminder"
+    echo "  remove (r) N                     Remove line N"
+    echo "  edit (e) N                       Edit line N"
+    echo "  done (d) N                       Mark line N as done (and handle repeat if any)"
+    echo "  snooze (z) N +Nd                 Reschedule line N to today + N days (d|w|m|y)"
+    echo "  reschedule (s) N YYYY-MM-DD      Set line N to new exact date"
+    echo "  open (o)                         Open the reminder file in your editor"
+    echo "  help (h, --help, -h, ?)          Show this help"
+    echo ""
+    echo "Examples:"
+    echo "  rem add 2025-04-01 file taxes"
+    echo "  rem snooze 2 +4d"
+    echo "  rem reschedule 3 2025-04-20"
+    echo "  rem add 2025-04-07 team sync --repeat weekly (monthly, yearly)"
+    echo "  rem add 2025-04-15 change air filters --repeat every 90d"
+    echo "  rem done 2"
+    exit 0
+    ;;
+
+  # === DEFAULT: Unknown command fallback ===
+  *)
+    echo "Unknown command: $command"
+    echo "Try: rem --help"
+    exit 1
+    ;;
+esac
+

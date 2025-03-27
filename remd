@@ -1,0 +1,101 @@
+#!/bin/bash
+
+REMINDER_FILE="$HOME/reminders.txt"
+ARCHIVE_FILE="$HOME/reminders.archive.txt"
+BACKUP_DIR="$HOME/.reminder_backups"
+mkdir -p "$BACKUP_DIR"
+
+DRY_RUN=false
+VERBOSE=false
+SEND_SINGLE=true
+RECIPIENT="6787780200@msg.fi.google.com"
+
+# === Parse flags ===
+while [[ "$1" =~ ^- ]]; do
+  case "$1" in
+    --dry-run) DRY_RUN=true ;;
+    --verbose) VERBOSE=true ;;
+  esac
+  shift
+done
+
+# === Backup current file to dated archive (keeping this functionality) ===
+today_stamp=$(date +%F)
+cp "$REMINDER_FILE" "$BACKUP_DIR/reminders-$today_stamp.txt" 2>/dev/null
+ls -1t "$BACKUP_DIR"/reminders-*.txt 2>/dev/null | tail -n +31 | xargs -r rm --
+
+# === Process reminders ===
+TODAY_EPOCH=$(date -d today +%s)
+TMP_FILE=$(mktemp)
+SENT_COUNT=0
+KEPT_COUNT=0
+TOTAL_COUNT=0
+DONE_COUNT=0
+COLLECTED_REMINDERS=""
+
+while IFS= read -r line || [[ -n "$line" ]]; do
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  [[ -z "$line" || "$line" =~ ^# ]] && echo "$line" >> "$TMP_FILE" && continue
+
+  raw_date=$(echo "$line" | cut -d'|' -f1 | xargs)
+  status=$(echo "$line" | cut -d'|' -f2 | xargs)
+  message=$(echo "$line" | cut -d'|' -f3- | xargs)
+
+  $VERBOSE && echo ">>> Processing line: '$line'"
+  $VERBOSE && echo "    → raw date field: '$raw_date'"
+  $VERBOSE && echo "    → message: '$message'"
+
+  if ! date -d "$raw_date" >/dev/null 2>&1; then
+    echo "    → ERROR: Failed to parse date: '$raw_date'"
+    continue
+  fi
+
+  # Always archive DONE, regardless of date
+  if [[ "$status" == "DONE" ]]; then
+    echo "$line" >> "$ARCHIVE_FILE"
+    DONE_COUNT=$((DONE_COUNT + 1))
+    continue
+  fi
+
+  entry_epoch=$(date -d "$raw_date" +%s)
+  $VERBOSE && echo "    → entry_epoch: $entry_epoch"
+  $VERBOSE && echo "    → today's_epoch: $TODAY_EPOCH"
+
+  if [[ "$entry_epoch" -le "$TODAY_EPOCH" ]]; then
+    if [[ "$status" == "PENDING" ]]; then
+      echo "$line" >> "$TMP_FILE"
+    else
+      echo "$raw_date | PENDING | $message" >> "$TMP_FILE"
+    fi
+    COLLECTED_REMINDERS+=$'Reminder for '"$raw_date"": $message\n"
+    SENT_COUNT=$((SENT_COUNT + 1))
+  else
+    echo "$line" >> "$TMP_FILE"
+    KEPT_COUNT=$((KEPT_COUNT + 1))
+  fi
+
+done < "$REMINDER_FILE"
+
+if $DRY_RUN; then
+  echo "[DRY RUN] Would have sent this message:"
+  echo "$COLLECTED_REMINDERS"
+else
+  if $SEND_SINGLE && [[ $SENT_COUNT -gt 0 ]]; then
+    echo "$COLLECTED_REMINDERS" | mail -s "Reminders for today" "$RECIPIENT"
+  fi
+fi
+
+# We've removed the creation of $REMINDER_FILE.bak entirely
+
+mv "$TMP_FILE" "$REMINDER_FILE"
+$VERBOSE && echo "[WRITE] Updated $REMINDER_FILE (kept $KEPT_COUNT future reminders)"
+
+echo
+echo "SUMMARY"
+echo "--------"
+echo "$SENT_COUNT reminders sent."
+echo "$KEPT_COUNT future reminders kept."
+echo "$DONE_COUNT items marked DONE and archived."
+echo "$TOTAL_COUNT total lines processed."
+
+exit 0
