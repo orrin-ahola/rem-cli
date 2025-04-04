@@ -1,8 +1,8 @@
 #!/bin/bash
 
 REMINDER_FILE="$HOME/reminders.txt"
-ARCHIVE_FILE="$HOME/reminders.archive.txt"
-BACKUP_DIR="$HOME/.reminder_backups"
+ARCHIVE_FILE="$HOME/.archive/reminders.archive.txt"
+BACKUP_DIR="$HOME/.backups/reminders"
 mkdir -p "$BACKUP_DIR"
 
 DRY_RUN=false
@@ -81,7 +81,7 @@ if $DRY_RUN; then
   echo "$COLLECTED_REMINDERS"
 else
   if $SEND_SINGLE && [[ $SENT_COUNT -gt 0 ]]; then
-    echo "$COLLECTED_REMINDERS" | mail -s "Reminders for today" "$RECIPIENT"
+    echo -e "$COLLECTED_REMINDERS" | mail -s "Reminders for today" "$RECIPIENT"
   fi
 fi
 
