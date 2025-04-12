@@ -195,27 +195,40 @@ case "$command" in
     fi
     ;;
 
-  # === SNOOZE: Shift a reminder by a relative offset (e.g. +3d) ===
-  snooze)
-    [[ $# -lt 2 ]] && error "Usage: rem snooze <line-number> <+Nd|+Nw|+Nm|+Ny>"
-    line_num="$1"
-    offset="$2"
 
-    line=$(sed -n "${line_num}p" "$REMINDER_FILE") || error "Could not read line $line_num"
-    orig_date=$(echo "$line" | cut -d'|' -f1 | xargs)
-    status_part=$(echo "$line" | cut -d'|' -f2 | xargs)
-    message_part=$(echo "$line" | cut -d'|' -f3- | xargs)
-
-    new_date=$(date -d "today $offset" +%Y-%m-%d 2>/dev/null)
-    [[ -z "$new_date" ]] && error "Invalid date offset: $offset"
-
-    new_line="$new_date |  | $message_part"
-    tmpfile=$(mktemp)
-    escaped=$(printf '%s\n' "$new_line" | sed 's/[&|]/\\&/g')
-    sed "${line_num}s|.*|$escaped|" "$REMINDER_FILE" > "$tmpfile" && mv "$tmpfile" "$REMINDER_FILE"
-    #sort_reminders_file
-    echo "Snoozed line $line_num to $new_date"
+# === SNOOZE: Shift a reminder by a relative offset (e.g. +3d) ===  
+snooze)    
+    [[ $# -lt 2 ]] && error "Usage: rem snooze <line-number> <+Nd|+Nw|+Nm|+Ny>"    
+    line_num="$1"    
+    offset="$2" 
+    line=$(sed -n "${line_num}p" "$REMINDER_FILE") || error "Could not read line $line_num" 
+    orig_date=$(echo "$line" | cut -d'|' -f1 | xargs)    
+    status_part=$(echo "$line" | cut -d'|' -f2 | xargs) 
+    message_part=$(echo "$line" | cut -d'|' -f3- | xargs) 
+    
+    # Extract the number and unit from the offset
+    offset_num=$(echo "$offset" | sed 's/^+\([0-9]*\)[dwmy]/\1/')
+    offset_unit=$(echo "$offset" | sed 's/^+[0-9]*\([dwmy]\)/\1/')
+    
+    # Convert the unit to a format that date understands
+    case "$offset_unit" in
+        d) date_offset="$offset_num days" ;;
+        w) date_offset="$offset_num weeks" ;;
+        m) date_offset="$offset_num months" ;;
+        y) date_offset="$offset_num years" ;;
+        *) error "Invalid offset: $offset_unit. Use format +3d or +4w or +6m or +1y" ;;
+    esac
+    
+    new_date=$(date -d "today + $date_offset" +%Y-%m-%d 2>/dev/null)
+    [[ -z "$new_date" ]] && error "Invalid date offset: $offset"    
+    new_line="$new_date |  | $message_part"    
+    tmpfile=$(mktemp)    
+    escaped=$(printf '%s\n' "$new_line" | sed 's/[&|]/\\&/g')    
+    sed "${line_num}s|.*|$escaped|" "$REMINDER_FILE" > "$tmpfile" && mv "$tmpfile" "$REMINDER_FILE"    
+    #sort_reminders_file    
+    echo "Snoozed line $line_num to $new_date"    
     ;;
+
 
   # === RESCHEDULE: Set a new exact date for a reminder ===
   reschedule)

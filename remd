@@ -67,7 +67,8 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     else
       echo "$raw_date | PENDING | $message" >> "$TMP_FILE"
     fi
-    COLLECTED_REMINDERS+=$'Reminder for '"$raw_date"": $message\n"
+    
+    COLLECTED_REMINDERS+="* $(sed 's| --repeat.*||' <<< "$message")\n" # make it look pretty for SMS
     SENT_COUNT=$((SENT_COUNT + 1))
   else
     echo "$line" >> "$TMP_FILE"
