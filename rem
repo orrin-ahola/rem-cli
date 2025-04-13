@@ -25,12 +25,54 @@ error() {
   exit 1
 }
 
+# === Convert d/w/m/y to day/week/month/year ===
+convert_interval() {
+  local interval="$1"
+  local number="${interval%?}"
+  local unit="${interval: -1}"
+  
+  case "$unit" in
+    d)
+      if [ "$number" -eq 1 ]; then
+        echo "1 day"
+      else
+        echo "$number days"
+      fi
+      ;;
+    w)
+      if [ "$number" -eq 1 ]; then
+        echo "1 week"
+      else
+        echo "$number weeks"
+      fi
+      ;;
+    m)
+      if [ "$number" -eq 1 ]; then
+        echo "1 month"
+      else
+        echo "$number months"
+      fi
+      ;;
+    y)
+      if [ "$number" -eq 1 ]; then
+        echo "1 year"
+      else
+        echo "$number years"
+      fi
+      ;;
+    *)
+      echo "$interval"
+      ;;
+  esac
+}
 
 # === Calculate next repeat date ===
 get_next_repeat_date() {
   pattern="$1"
-
+  
   case "$pattern" in
+    daily)
+      date -d "today +1 days" +%Y-%m-%d ;;
     weekly)
       date -d "today +7 days" +%Y-%m-%d ;;
     monthly)
@@ -39,7 +81,12 @@ get_next_repeat_date() {
       date -d "today +1 year" +%Y-%m-%d ;;
     every*)
       interval=$(echo "$pattern" | sed -E 's/^every[[:space:]]+//')
-      date -d "today +$interval" +%Y-%m-%d 2>/dev/null || echo ""
+      converted=$(convert_interval "$interval")
+      date -d "today + $converted" +%Y-%m-%d 2>/dev/null || echo ""
+      ;;
+    [0-9]+[dwmy])
+      converted=$(convert_interval "$pattern")
+      date -d "today + $converted" +%Y-%m-%d 2>/dev/null || echo ""	    
       ;;
     *)
       echo "" ;;
@@ -168,10 +215,11 @@ case "$command" in
     ;;
 
   # === DONE: Mark a reminder as complete, and schedule next repeat if applicable ===
-  done)
+  done|do)
     [[ -z "$1" ]] && error "Usage: rem done <line-number>"
 
     line=$(sed -n "$1p" "$REMINDER_FILE") || error "Could not read line $1"
+    [[ -z "$line" ]] && error "Line not found."
     date_part=$(echo "$line" | cut -d'|' -f1 | xargs)
     status_part="DONE"
     message_part=$(echo "$line" | cut -d'|' -f3- | xargs)
@@ -183,7 +231,7 @@ case "$command" in
     echo "Marked line $1 as DONE."
 
     # Handle repeat
-    if [[ "$message_part" =~ --repeat[[:space:]]+([a-zA-Z0-9]+(\s+[a-zA-Z0-9]+)?) ]]; then
+    if [[ "$message_part" =~ --repeat[[:space:]]+(.*) ]]; then
       repeat_raw="${BASH_REMATCH[1]}"
       next_date=$(get_next_repeat_date "$repeat_raw")
       if [[ -n "$next_date" ]]; then
@@ -262,10 +310,11 @@ snooze)
     echo ""
     echo "Commands:"
     echo "  list (l)                          Show reminders (date-sorted, numbered)"
-    echo "  add (a) YYYY-MM-DD msg [--repeat pattern]   Add a reminder"
+    echo "  add (a) YYYY-MM-DD msg [--repeat pattern]  (patterns: weekly OR every 4d OR 3m)"
+    echo "                                   Add a reminder"
     echo "  remove (r) N                     Remove line N"
     echo "  edit (e) N                       Edit line N"
-    echo "  done (d) N                       Mark line N as done (and handle repeat if any)"
+    echo "  done|do (d) N                    Mark line N as done (and handle repeat if any)"
     echo "  snooze (z) N +Nd                 Reschedule line N to today + N days (d|w|m|y)"
     echo "  reschedule (s) N YYYY-MM-DD      Set line N to new exact date"
     echo "  open (o)                         Open the reminder file in your editor"
