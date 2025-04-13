@@ -9,6 +9,7 @@ shift
 # === Command aliases ===
 case "$command" in
   a) command="add" ;;
+  ai) command="addin" ;;
   r) command="remove" ;;
   e) command="edit" ;;
   l) command="list" ;;
@@ -193,6 +194,44 @@ case "$command" in
     fi
     ;;
 
+  # === ADDIN: Add reminder with relative date ===
+  addin)
+    [[ $# -lt 2 ]] && error "Usage: rem addin <time-offset> <message> [--repeat pattern]"
+    
+    time_offset="$1"
+    shift
+    
+    # Convert time offset to a date
+    if [[ "$time_offset" =~ ^[0-9]+[dwmy]$ ]]; then
+      # Handle short format like 3d, 2w, 1m, 5y
+      number="${time_offset%?}"
+      unit="${time_offset: -1}"
+      
+      case "$unit" in
+        d) date_offset="$number days" ;;
+        w) date_offset="$number weeks" ;;
+        m) date_offset="$number months" ;;
+        y) date_offset="$number years" ;;
+        *) error "Invalid time offset format: $time_offset" ;;
+      esac
+      
+      target_date=$(date -d "today + $date_offset" +%Y-%m-%d)
+    elif [[ "$time_offset" =~ ^[0-9]+$ ]] && [[ $# -gt 0 ]] && [[ "$1" =~ ^(day|days|week|weeks|month|months|year|years)$ ]]; then
+      # Handle format like "3 days", "2 weeks", etc.
+      number="$time_offset"
+      unit="$1"
+      shift  # Remove the unit from the arguments
+      
+      target_date=$(date -d "today + $number $unit" +%Y-%m-%d)
+    else
+      error "Invalid time format. Use '3d', '2w', '5m', '1y' or '3 days', '2 weeks', etc."
+    fi
+    
+    # Now call the add function with the calculated date
+    $0 add "$target_date" "$@"
+    ;;
+
+
   # === REMOVE: Delete a reminder by line number ===
   remove)
     [[ -z "$1" ]] && error "Usage: rem remove <line-number>"
@@ -312,6 +351,7 @@ snooze)
     echo "  list (l)                          Show reminders (date-sorted, numbered)"
     echo "  add (a) YYYY-MM-DD msg [--repeat pattern]  (patterns: weekly OR every 4d OR 3m)"
     echo "                                   Add a reminder"
+    echo -e "  addin {pattern} \"task\""
     echo "  remove (r) N                     Remove line N"
     echo "  edit (e) N                       Edit line N"
     echo "  done|do (d) N                    Mark line N as done (and handle repeat if any)"
@@ -326,6 +366,7 @@ snooze)
     echo "  rem reschedule 3 2025-04-20"
     echo "  rem add 2025-04-07 team sync --repeat weekly (monthly, yearly)"
     echo "  rem add 2025-04-15 change air filters --repeat every 90d"
+    echo "  rem addin 4 days clean house"
     echo "  rem done 2"
     exit 0
     ;;
