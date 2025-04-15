@@ -106,6 +106,7 @@ case "$command" in
     # Clean: remove blank lines and strip whitespace
     tmpfile=$(mktemp)
     awk 'NF { gsub(/^[ \t]+|[ \t]+$/, "", $0); print }' "$REMINDER_FILE" > "$tmpfile" && mv "$tmpfile" "$REMINDER_FILE"
+ 
     sort -t '|' -k1,1 "$REMINDER_FILE" -o "$REMINDER_FILE"
 
     echo ""
